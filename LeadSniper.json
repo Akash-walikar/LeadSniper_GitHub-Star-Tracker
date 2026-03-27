@@ -1,0 +1,349 @@
+{
+  "name": "LeadSniper workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "77079c78-0c02-4833-8319-adf08192cf8f",
+      "name": "Schedule Trigger (Every 15 min)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1104,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/repos/tiangolo/fastapi/stargazers",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "per_page",
+              "value": "30"
+            },
+            {
+              "name": "page",
+              "value": "1"
+            },
+            {
+              "name": "sort",
+              "value": "created"
+            },
+            {
+              "name": "direction",
+              "value": "desc"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "5a7717f2-996e-48e5-b999-960c33d411d9",
+      "name": "Fetch Recent Stargazers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -880,
+        128
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KCUZMCAVeImLe8Jn",
+          "name": "Header Auth account 5"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst stargazers = items[0].json.body;\n\n// Return ALL users (no filtering for now)\nreturn stargazers.map(star => ({\n  json: {\n    username: star.login,\n    avatar_url: star.avatar_url,\n    github_url: star.html_url\n  }\n}));"
+      },
+      "id": "664a2647-decd-4549-88f5-194416b1581e",
+      "name": "Parse & Deduplicate New Stars",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -656,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/users/{{$json.username}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ghp_XXXXXXXXXXXmF0FSWqIB1M4HjVVa"
+            },
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          }
+        }
+      },
+      "id": "c2239eb1-9080-4753-a75f-7f51dcede094",
+      "name": "Enrich: Fetch User Profile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -448,
+        128
+      ],
+      "notes": "Batch size=1 with 1s delay handles rate limits gracefully"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{$json.followers}}",
+              "rightValue": 100,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            },
+            {
+              "id": "8428a4fa-3317-46e4-b0a4-74660a2b37ad",
+              "leftValue": "50",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "9695c196-d874-44bf-8638-52837274e188",
+      "name": "Filter: High-Value Lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        128
+      ],
+      "notes": "TRUE = followers > 100 OR public_repos > 50"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer gsk_EXXXXXXXXXXXXXapBsVrT1zhXt39j2oPaMtjg"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"openai/gpt-oss-120b\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"Write one short B2B outreach line. Name: {{$json.login}}, Followers: {{$json.followers}}, Repos: {{$json.public_repos}}\"\n    }\n  ]\n}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 2000
+            }
+          }
+        }
+      },
+      "id": "c5ad99a1-45a9-4677-ae3b-7409d19c4da3",
+      "name": "AI: Generate Sales Pitch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "notes": "openai/gpt-oss-120b"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const profile = $('Filter: High-Value Lead?').item.json;\nconst pitchResponse = $input.item.json;\n\nconst pitch = pitchResponse.choices?.[0]?.message?.content || 'Pitch unavailable';\n\nreturn {\n  json: {\n    name: profile.name || profile.login,\n    login: profile.login,\n    company: profile.company || 'N/A',\n    location: profile.location || 'N/A',\n    bio: profile.bio || 'No bio provided',\n    followers: profile.followers,\n    pitch: pitch\n  }\n};"
+      },
+      "id": "ce285e74-214a-4021-aaab-3427baa64573",
+      "name": "Merge Profile + Pitch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log dropped leads for auditing\nconst user = $input.item.json;\nconsole.log(`[FILTERED OUT] @${user.login} — followers: ${user.followers}, repos: ${user.public_repos}`);\nreturn { json: { status: 'filtered', login: user.login, followers: user.followers, public_repos: user.public_repos } };\n"
+      },
+      "id": "d2ba420d-712f-423f-84ef-10f78a7cb5fe",
+      "name": "Log: Below Threshold",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        240
+      ],
+      "notes": "FALSE branch — silently logs and stops"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "YOUR_SLACK_WEBHOOK",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"New High-Value Lead!\\n\\nName: {{$json.name}}\\nUsername: {{$json.login}}\\nFollowers: {{$json.followers}}\\nCompany: {{$json.company}}\\nLocation: {{$json.location}}\\n\\n AI Pitch:\\n{{$json.pitch}}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        432,
+        0
+      ],
+      "id": "432f85cd-ad26-4dc1-8881-4eddc2416f99",
+      "name": "HTTP Request"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger (Every 15 min)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Recent Stargazers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Recent Stargazers": {
+      "main": [
+        [
+          {
+            "node": "Parse & Deduplicate New Stars",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Deduplicate New Stars": {
+      "main": [
+        [
+          {
+            "node": "Enrich: Fetch User Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich: Fetch User Profile": {
+      "main": [
+        [
+          {
+            "node": "Filter: High-Value Lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: High-Value Lead?": {
+      "main": [
+        [
+          {
+            "node": "AI: Generate Sales Pitch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log: Below Threshold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: Generate Sales Pitch": {
+      "main": [
+        [
+          {
+            "node": "Merge Profile + Pitch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Profile + Pitch": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "a10914c5-ce21-493f-b336-f7fe78531d61",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1c901ed52a2a912d30c0d9b8e1b77360f450fbf95e94b392c19a923a0797edb5"
+  },
+  "id": "bH3jchZIudpXkofV",
+  "tags": []
+}
